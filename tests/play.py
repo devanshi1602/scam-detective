@@ -15,7 +15,7 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={'width': 1280, 'height': 800}); errs = []
     pg.on('pageerror', lambda e: errs.append('PAGEERROR ' + str(e))); pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
     pg.goto(url); pg.wait_for_timeout(700); pg.screenshot(path=out + '0_landing.png')
-    pg.click('#btn-flat'); pg.wait_for_timeout(900); pg.screenshot(path=out + '1_tutorial.png')
+    pg.click('#btn-flat'); pg.wait_for_timeout(300); pg.evaluate('game.openDaily()'); pg.wait_for_timeout(900); pg.screenshot(path=out + '1_tutorial.png')
     for step in range(9):
         st = pg.evaluate("({state: game.state, id: game.msg.id, scam: game.msg.scam, idx: game.cur.idx, flags: Object.keys(game.msg.clues).filter(k => game.msg.clues[k].flag), btns: game.cardButtons.map(b => [b.id, b.x + b.w/2, b.y + b.h/2])})")
         if st['state'] == 'summary': break
@@ -34,7 +34,11 @@ with sync_playwright() as p:
         v = pg.evaluate("({state: game.state, res: game.lastRes && {c: game.lastRes.correct, p: game.lastRes.points}})")
         print(step, st['id'], 'scam' if st['scam'] else 'real', 'marked', sel, 'stamped', which, '->', v)
         if step in (0, 2): pg.screenshot(path=out + f'3_verdict_{step}.png')
-        nb = pg.evaluate("game.infoButtons.find(b => b.id === 'next')")
+        for _ in range(40):
+            nb = pg.evaluate("(game.infoButtons || []).find(b => b.id === 'next')")
+            if nb: break
+            pg.wait_for_timeout(200)
+        pg.wait_for_timeout(300)
         click(pg, pg.evaluate(JS_PANEL + f"(['info', {nb['x'] + nb['w']/2}, {nb['y'] + nb['h']/2}])")); pg.wait_for_timeout(1100)
     pg.screenshot(path=out + '4_summary.png')
     print('final', pg.evaluate("({state: game.state, p: game.p, results: game.cur.results.length})"))
