@@ -30,6 +30,12 @@
   .feat { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; margin-top: 22px; color: var(--muted); font-size: 13px; }
   #menu { position: fixed; top: 16px; left: 16px; padding: 10px 14px; font-size: 14px; display: none; backdrop-filter: blur(6px); }
   #err { color: #ff9a8a; }
+  button.lang { margin-top: 18px; padding: 10px 18px; font-size: 16px; }
+  #credits { margin-top: 14px; color: var(--muted); font-size: 12px; text-align: left; }
+  #credits summary { cursor: pointer; text-align: center; }
+  #credits ul { max-height: 140px; overflow: auto; padding-left: 18px; margin: 8px 0 0; line-height: 1.5; }
+  #credits a { color: var(--muted); }
+  html[lang="hi"] body { font-family: system-ui, "Noto Sans Devanagari", "Nirmala UI", Mangal, sans-serif; }
 </style>
 </head>
 <body>
@@ -37,24 +43,42 @@
 <div id="overlay">
   <div class="card">
     <div class="mark" aria-hidden="true"></div>
-    <h1>Scam Detective</h1>
-    <p class="tag">Suspicious messages land on your desk. Inspect the clues with your hands, then stamp each one SCAM or SAFE.</p>
+    <h1 data-i18n>Scam Detective</h1>
+    <p class="tag" data-i18n>Search crime scenes, connect the evidence and interrogate suspects, with your hands. Solve cyber crimes and real-world cases.</p>
     <div class="btns">
-      <button id="btn-ar" class="primary" hidden>Play in mixed reality</button>
-      <button id="btn-vr" hidden>Play in VR</button>
-      <button id="btn-flat">Play on this screen</button>
+      <button id="btn-ar" class="primary" hidden data-i18n>Play in mixed reality</button>
+      <button id="btn-vr" hidden data-i18n>Play in VR</button>
+      <button id="btn-flat" data-i18n>Play on this screen</button>
     </div>
     <p class="note" id="note">Checking for a headset…</p>
-    <div class="feat"><span>Hands only</span><span>Seated</span><span>New case daily</span><span>Read-aloud</span></div>
+    <div class="feat"><span data-i18n>Hands only</span><span data-i18n>Seated</span><span data-i18n>Crime scenes</span><span data-i18n>Interrogations</span><span data-i18n>New case daily</span><span data-i18n>English + हिन्दी</span></div>
+    <button id="btn-lang" class="lang" aria-label="Change language">हिन्दी</button>
+    <details id="credits"><summary data-i18n>3D model credits</summary><ul id="credit-list"></ul></details>
   </div>
 </div>
-<button id="menu">Menu</button>
+<button id="menu" data-i18n>Menu</button>
 <!--SCRIPTS-->
 <script src="math.js"></script>
 <script src="cases.js"></script>
+<script src="stories.js"></script>
+<script src="investigations.js"></script>
+<script src="i18n.js"></script>
+<script src="lang/hi-ui.js"></script>
+<script src="lang/hi-cases.js"></script>
+<script src="lang/hi-stories.js"></script>
+<script src="lang/hi-inv.js"></script>
 <script src="gl.js"></script>
+<script src="textures.js"></script>
 <script src="sound.js"></script>
 <script src="game.js"></script>
+<script src="faces.js"></script>
+<script src="models.js"></script>
+<script src="characters.js"></script>
+<script src="people.js"></script>
+<script src="investigate.js"></script>
+<script src="scenes.js"></script>
+<script src="puzzles.js"></script>
+<script src="interact.js"></script>
 <!--/SCRIPTS-->
 <script>
 (function () {
@@ -65,7 +89,23 @@
   function hide() { overlay.classList.add('hidden'); }
   function show() { overlay.classList.remove('hidden'); menu.style.display = 'none'; }
   game.onExit = show;
-  document.getElementById('btn-flat').onclick = function () { game.sound.unlock(); hide(); menu.style.display = 'block'; };
+  var T = I18N.T, noteKey = 'Checking for a headset…', langBtn = document.getElementById('btn-lang');
+  function setNote(en) { noteKey = en; note.textContent = T(en); }
+  function applyDom() {
+    [].forEach.call(document.querySelectorAll('[data-i18n]'), function (el) { if (!el.dataset.en) el.dataset.en = el.textContent; el.textContent = T(el.dataset.en); });
+    if (!note.querySelector('#err')) note.textContent = T(noteKey);
+    var LS = I18N.languages(); langBtn.textContent = 'A / अ  ' + I18N.langName(LS[(LS.indexOf(I18N.lang) + 1) % LS.length]);
+  }
+  game.onLang = applyDom; applyDom();
+  var cl = document.getElementById('credit-list');
+  if (window.Models) Models.credits().forEach(function (c) {
+    var li = document.createElement('li'), a = document.createElement(c.source ? 'a' : 'span');
+    a.textContent = '“' + c.title + '”'; if (c.source) { a.href = c.source; a.target = '_blank'; a.rel = 'noopener'; }
+    li.appendChild(a); li.appendChild(document.createTextNode(' by ' + (c.author ? c.author.replace(/\s*\(.*\)/, '') : 'Sketchfab scan') + (c.license ? ', ' + c.license.replace(/\s*\(.*\)/, '') : '')));
+    cl.appendChild(li);
+  });
+  langBtn.onclick = function () { var LS = I18N.languages(); game.setLang(LS[(LS.indexOf(I18N.lang) + 1) % LS.length]); };
+  document.getElementById('btn-flat').onclick = function () { game.sound.unlock(); hide(); menu.style.display = 'block'; if (!game._introPlayed) { game._introPlayed = true; game.playIntro(); } };
   menu.onclick = show;
   function wire(id, mode) {
     var b = document.getElementById(id);
@@ -74,14 +114,14 @@
       game.enterXR(mode).then(hide).catch(function (e) { note.innerHTML = '<span id="err">Couldn’t start: ' + e.message + '</span>'; });
     };
   }
-  if (!navigator.xr) { note.textContent = 'Open this page in the Meta Quest Browser to play with your hands in mixed reality.'; return; }
+  if (!navigator.xr) { setNote('Open this page in the Meta Quest Browser to play with your hands in mixed reality.'); return; }
   Promise.all([navigator.xr.isSessionSupported('immersive-ar').catch(function () { return false; }),
                navigator.xr.isSessionSupported('immersive-vr').catch(function () { return false; })]).then(function (r) {
     if (r[0]) wire('btn-ar', 'immersive-ar');
     if (r[1]) wire('btn-vr', 'immersive-vr');
     if (!r[1] && document.getElementById('btn-flat')) document.getElementById('btn-flat').classList.add('primary');
-    note.textContent = r[0] || r[1] ? 'Sit at a desk. Your case file appears just in front of you, within reach.'
-      : 'Open this page in the Meta Quest Browser to play with your hands in mixed reality.';
+    setNote(r[0] || r[1] ? 'Sit at a desk. Your case file appears just in front of you, within reach.'
+      : 'Open this page in the Meta Quest Browser to play with your hands in mixed reality.');
   });
 })();
 </script>

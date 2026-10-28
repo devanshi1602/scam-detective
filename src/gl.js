@@ -13,21 +13,23 @@
   var FS = [
     'precision mediump float;',
     'varying vec3 vN; varying vec3 vW; varying vec2 vUV;',
-    'uniform vec4 uColor; uniform vec3 uEmissive; uniform vec3 uEye; uniform float uUnlit; uniform float uUseTex;',
+    'uniform vec4 uColor; uniform vec3 uEmissive; uniform vec3 uEye; uniform float uUnlit; uniform float uUseTex; uniform float uDay; uniform float uTile; uniform float uPhoto;',
     'uniform sampler2D uTex;',
     'void main(){',
     '  vec4 base = uColor;',
-    '  if (uUseTex > 0.5) { vec4 t = texture2D(uTex, vUV); base = vec4(t.rgb * uColor.rgb, t.a * uColor.a); }',
+    '  if (uTile > 0.0) { vec3 an = abs(normalize(vN)); vec2 wuv = an.y > 0.6 ? vW.xz : (an.x > an.z ? vW.zy : vW.xy); base = vec4(texture2D(uTex, wuv * uTile).rgb * uColor.rgb, uColor.a); }',
+    '  else if (uUseTex > 0.5) { vec4 t = texture2D(uTex, vUV); base = vec4(t.rgb * uColor.rgb, t.a * uColor.a); }',
     '  if (uUnlit > 0.5) { gl_FragColor = vec4(base.rgb + uEmissive, base.a); return; }',
     '  vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;',
     '  vec3 V = normalize(uEye - vW);',
     '  vec3 L = normalize(vec3(0.35, 1.0, 0.45));',
     '  float hemi = 0.5 + 0.5 * N.y;',
-    '  vec3 amb = mix(vec3(0.30, 0.27, 0.36), vec3(0.95, 0.93, 0.88), hemi);',
+    '  vec3 amb = mix(mix(vec3(0.30, 0.27, 0.36), vec3(0.62, 0.64, 0.70), uDay), mix(vec3(0.95, 0.93, 0.88), vec3(1.0, 0.99, 0.95), uDay), hemi);',
     '  float diff = max(dot(N, L), 0.0);',
     '  float spec = pow(max(dot(N, normalize(L + V)), 0.0), 32.0) * 0.25;',
     '  float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.18;',
-    '  vec3 c = base.rgb * (amb * 0.55 + diff * vec3(1.0, 0.96, 0.88) * 0.6) + spec + rim + uEmissive;',
+    '  vec3 c = base.rgb * (amb * mix(0.55, 0.68, uDay) + diff * vec3(1.0, 0.97, 0.9) * mix(0.6, 0.55, uDay)) + spec + rim + uEmissive;',
+    '  if (uPhoto > 0.5) c = base.rgb * (0.74 + 0.3 * diff + 0.06 * hemi) * mix(0.78, 1.0, uDay) + spec * 0.12 + uEmissive;',
     '  gl_FragColor = vec4(c, base.a);',
     '}'].join('\n');
 
@@ -42,7 +44,7 @@
       aPos: gl.getAttribLocation(p, 'aPos'), aNormal: gl.getAttribLocation(p, 'aNormal'), aUV: gl.getAttribLocation(p, 'aUV'),
       uModel: gl.getUniformLocation(p, 'uModel'), uView: gl.getUniformLocation(p, 'uView'), uProj: gl.getUniformLocation(p, 'uProj'),
       uNormal: gl.getUniformLocation(p, 'uNormal'), uColor: gl.getUniformLocation(p, 'uColor'), uEmissive: gl.getUniformLocation(p, 'uEmissive'),
-      uEye: gl.getUniformLocation(p, 'uEye'), uUnlit: gl.getUniformLocation(p, 'uUnlit'), uUseTex: gl.getUniformLocation(p, 'uUseTex'),
+      uEye: gl.getUniformLocation(p, 'uEye'), uUnlit: gl.getUniformLocation(p, 'uUnlit'), uUseTex: gl.getUniformLocation(p, 'uUseTex'), uDay: gl.getUniformLocation(p, 'uDay'), uTile: gl.getUniformLocation(p, 'uTile'), uPhoto: gl.getUniformLocation(p, 'uPhoto'),
       uTex: gl.getUniformLocation(p, 'uTex')
     };
     this.meshes = {
@@ -77,14 +79,16 @@
     return { vb: vb, ib: ib, n: g.idx.length };
   };
 
-  Renderer.prototype.texture = function (canvas) {
-    var gl = this.gl, t = gl.createTexture();
+  Renderer.prototype.texture = function (canvas, opts) {
+    var gl = this.gl, t = gl.createTexture(), rep = opts && opts.repeat;
     gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, rep ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.updateTexture(t, canvas); return t;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, rep ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, rep ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+    this.updateTexture(t, canvas);
+    if (rep) gl.generateMipmap(gl.TEXTURE_2D);
+    return t;
   };
   Renderer.prototype.updateTexture = function (t, canvas) {
     var gl = this.gl; gl.bindTexture(gl.TEXTURE_2D, t);
@@ -101,18 +105,18 @@
     var gl = this.gl, L = this.loc;
     gl.useProgram(this.prog);
     gl.uniformMatrix4fv(L.uView, false, view); gl.uniformMatrix4fv(L.uProj, false, proj);
-    gl.uniform3fv(L.uEye, eye);
+    gl.uniform3fv(L.uEye, eye); gl.uniform1f(L.uDay, this.day ? 1 : 0);
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
     var opaque = [], trans = [], add = [];
     for (var i = 0; i < this.list.length; i++) {
       var it = this.list[i];
-      if (it.add) add.push(it); else if ((it.color && it.color[3] < 1) || it.tex) trans.push(it); else opaque.push(it);
+      if (it.add) add.push(it); else if ((it.color && it.color[3] < 1) || (it.tex && !it.tile)) trans.push(it); else opaque.push(it);
     }
     gl.disable(gl.BLEND); gl.depthMask(true);
     this._draw(opaque);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
     gl.disable(gl.CULL_FACE);
-    this._draw(trans);
+    this._transPass = true; this._draw(trans); this._transPass = false; gl.depthMask(false);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     this._draw(add);
     gl.depthMask(true); gl.disable(gl.BLEND);
@@ -138,7 +142,9 @@
       gl.uniform1f(L.uUnlit, it.unlit ? 1 : 0);
       if (it.tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, it.tex); gl.uniform1i(L.uTex, 0); gl.uniform1f(L.uUseTex, 1); }
       else gl.uniform1f(L.uUseTex, 0);
-      gl.drawElements(gl.TRIANGLES, mesh.n, gl.UNSIGNED_SHORT, 0);
+      gl.uniform1f(L.uTile, it.tex && it.tile ? it.tile : 0); gl.uniform1f(L.uPhoto, it.photo ? 1 : 0);
+      if (this._transPass) gl.depthMask(!!(it.tex && !it.add && (!it.color || it.color[3] >= 1))); // solid panels hide what is behind them
+      gl.drawElements(gl.TRIANGLES, mesh.n, mesh.type32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
     }
   };
 

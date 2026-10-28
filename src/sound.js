@@ -20,6 +20,43 @@
     this.rain = ctx.createGain(); this.rain.gain.value = 0;
     src.connect(lp); lp.connect(this.rain); this.rain.connect(this.master); src.start();
     this.rain.gain.setTargetAtTime(0.16, ctx.currentTime, 2);
+    // fluorescent hum: mains buzz with harmonics, low-passed
+    this.hum = ctx.createGain(); this.hum.gain.value = 0;
+    var hlp = ctx.createBiquadFilter(); hlp.type = 'lowpass'; hlp.frequency.value = 520;
+    [[100, 'sawtooth', 0.5], [200, 'square', 0.12], [50, 'sine', 0.6]].forEach(function (h) {
+      var o = ctx.createOscillator(), g = ctx.createGain(); o.type = h[1]; o.frequency.value = h[0]; g.gain.value = h[2]; o.connect(g); g.connect(hlp); o.start();
+    });
+    hlp.connect(this.hum); this.hum.connect(this.master);
+    // wall clock: two-second loop, tick then tock
+    var cl = ctx.sampleRate * 2, cb = ctx.createBuffer(1, cl, ctx.sampleRate), cd = cb.getChannelData(0);
+    [[0, 3800], [ctx.sampleRate, 2600]].forEach(function (k) {
+      for (var j = 0; j < 900; j++) cd[k[0] + j] = Math.sin(j * 2 * Math.PI * k[1] / ctx.sampleRate) * Math.exp(-j / 120) * 0.9 + (Math.random() - 0.5) * Math.exp(-j / 60) * 0.5;
+    });
+    var cs = ctx.createBufferSource(); cs.buffer = cb; cs.loop = true;
+    this.tick = ctx.createGain(); this.tick.gain.value = 0;
+    cs.connect(this.tick); this.tick.connect(this.master); cs.start();
+    // distant street: very low rumble with the odd horn
+    var sl = ctx.sampleRate * 7, sb = ctx.createBuffer(1, sl, ctx.sampleRate), sd = sb.getChannelData(0), lv = 0;
+    for (var q = 0; q < sl; q++) { lv = (lv + 0.01 * (Math.random() * 2 - 1)) / 1.01; sd[q] = lv * 5; }
+    [[1.3, 410], [4.6, 370]].forEach(function (hn) {
+      var st0 = Math.floor(hn[0] * ctx.sampleRate), hl = Math.floor(0.35 * ctx.sampleRate);
+      for (var j = 0; j < hl; j++) sd[st0 + j] += 0.05 * Math.sin(j * 2 * Math.PI * hn[1] / ctx.sampleRate) * Math.sin(Math.PI * j / hl);
+    });
+    var ss = ctx.createBufferSource(); ss.buffer = sb; ss.loop = true;
+    var slp = ctx.createBiquadFilter(); slp.type = 'lowpass'; slp.frequency.value = 700;
+    this.street = ctx.createGain(); this.street.gain.value = 0;
+    ss.connect(slp); slp.connect(this.street); this.street.connect(this.master); ss.start();
+    if (this.room) { var r0 = this.room; this.room = null; this.setRoom(r0); }
+  };
+  // room ambience mix: [rain, hum, clock, street]
+  var ROOMS = { desk: [0.16, 0, 0, 0], home: [0.1, 0, 0.05, 0.05], office: [0.08, 0.006, 0.035, 0], lineup: [0.02, 0.02, 0, 0], interro: [0.025, 0.026, 0.03, 0],
+    party: [0.03, 0, 0.02, 0.12], street: [0.03, 0.01, 0, 0.2], empty: [0.07, 0.03, 0, 0], kitchen: [0.05, 0.004, 0.04, 0.07] };
+  Sound.prototype.setRoom = function (name) {
+    if (this.room === name) return; this.room = name;
+    if (!this.ctx || !this.hum) return;
+    var m = ROOMS[name] || ROOMS.desk, t = this.ctx.currentTime;
+    this.rain.gain.setTargetAtTime(m[0], t, 0.8); this.hum.gain.setTargetAtTime(m[1], t, 0.8);
+    this.tick.gain.setTargetAtTime(m[2], t, 0.5); this.street.gain.setTargetAtTime(m[3], t, 0.8);
   };
   Sound.prototype.setEnabled = function (on) { this.enabled = on; if (this.ctx) this.master.gain.setTargetAtTime(on ? 0.9 : 0, this.ctx.currentTime, 0.05); };
   Sound.prototype.suspend = function () { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); };
@@ -58,6 +95,20 @@
   Sound.prototype.correct = function () { if (!ok(this)) return; var t = this.ctx.currentTime + 0.18, self = this; [0, 4, 7, 12].forEach(function (s, i) { self._tone(523.25 * Math.pow(2, s / 12), 'triangle', t + i * 0.07, 0.6, 0.14); }); };
   Sound.prototype.wrong = function () { if (!ok(this)) return; var t = this.ctx.currentTime + 0.18; this._tone(330, 'triangle', t, 0.3, 0.12, null); this._tone(262, 'triangle', t + 0.18, 0.45, 0.12, null); };
   Sound.prototype.closed = function () { if (!ok(this)) return; var t = this.ctx.currentTime, self = this; [0, 4, 7, 12, 16, 19, 24].forEach(function (s, i) { self._tone(392 * Math.pow(2, s / 12), 'sine', t + i * 0.09, 1.4, 0.12); }); };
+  // a taut string being plucked
+  Sound.prototype.twang = function () { if (!ok(this)) return; var t = this.ctx.currentTime + 0.25; this._tone(196, 'triangle', t, 0.5, 0.16, null, 185); this._tone(392, 'sine', t, 0.3, 0.05, null, 370); };
+  // two-tone police siren, fading in and out
+  Sound.prototype.siren = function (dur) {
+    if (!ok(this)) return; var ctx = this.ctx, t = ctx.currentTime, d = dur || 3, o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o.type = 'sawtooth'; lp.type = 'lowpass'; lp.frequency.value = 1800;
+    for (var i = 0; i < d / 0.5; i++) o.frequency.setValueAtTime(i % 2 ? 640 : 820, t + i * 0.5);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 0.6); g.gain.setValueAtTime(0.05, t + d - 0.8); g.gain.linearRampToValueAtTime(0, t + d);
+    o.connect(lp); lp.connect(g); g.connect(this.master); o.start(t); o.stop(t + d + 0.1);
+  };
+  // soft air whoosh for room transitions
+  Sound.prototype.whoosh = function () { if (!ok(this)) return; var t = this.ctx.currentTime; this._noise(t, 0.45, 700, 0.6, 0.25, null); };
+  // bright metallic chime for a medal
+  Sound.prototype.medal = function () { if (!ok(this)) return; var t = this.ctx.currentTime + 0.3, self = this; [0, 7, 12, 19].forEach(function (s2, i) { self._tone(659 * Math.pow(2, s2 / 12), 'sine', t + i * 0.05, 1.6, 0.07); }); };
   Sound.prototype.ui = function () { if (!ok(this)) return; var t = this.ctx.currentTime; this._tone(880, 'sine', t, 0.07, 0.07); };
   root.Sound = Sound;
 })(this);
